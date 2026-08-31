@@ -89,6 +89,23 @@ Para detener y limpiar:
 make dev-env-down
 ```
 
+### Puntos de acceso a Kafka
+
+El broker publica dos listeners, porque la dirección anunciada debe ser
+alcanzable por el cliente que la recibe:
+
+| Desde                        | Bootstrap server  |
+|------------------------------|-------------------|
+| Otro contenedor de compose   | `kafka:9092`      |
+| El host (Go local, CLI)      | `localhost:29092` |
+
+Los servicios de compose ya reciben `KAFKA_BROKERS=kafka:9092`. Si ejecutas un
+servicio directamente en el host, apunta al listener externo:
+
+```bash
+KAFKA_BROKERS=localhost:29092 go run ./services/ingestion-gateway
+```
+
 ## Despliegue en Kubernetes
 
 ```bash

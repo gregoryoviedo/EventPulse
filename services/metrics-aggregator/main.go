@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/eventpulse/telemetry"
 	"github.com/eventpulse/events"
+	"github.com/eventpulse/telemetry"
 )
 
 func main() {
@@ -13,7 +17,21 @@ func main() {
 	}
 	_ = events.TopicMetricsTicks
 
+	// Block until the process is asked to stop. A bare `select {}` would be
+	// flagged by the runtime as a deadlock ("all goroutines are asleep"), so the
+	// scaffold waits on SIGINT/SIGTERM instead, which is also what `docker stop`
+	// and Kubernetes send when draining the container.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	// TODO: consume events from Kafka and aggregate metrics.
 	log.Println("metrics-aggregator started (scaffold)")
-	select {}
+
+	<-ctx.Done()
+
+	// Stop trapping signals so a second Ctrl-C aborts a stuck shutdown.
+	stop()
+
+	// TODO: flush pending aggregates and close the Kafka consumer here.
+	log.Println("metrics-aggregator stopped")
 }
