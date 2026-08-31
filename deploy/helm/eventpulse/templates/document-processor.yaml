@@ -1,0 +1,45 @@
+{{- if .Values.services.documentProcessor.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: document-processor
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "eventpulse.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.services.documentProcessor.replicas }}
+  selector:
+    matchLabels:
+      {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "document-processor") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "eventpulse.labels" . | nindent 8 }}
+        {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "document-processor") | nindent 8 }}
+    spec:
+      containers:
+        - name: document-processor
+          image: "{{ .Values.image.registry }}/{{ .Values.services.documentProcessor.image }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.services.documentProcessor.port }}
+          env:
+            - name: KAFKA_BROKERS
+              value: {{ .Values.kafka.brokers | quote }}
+            - name: POSTGRES_HOST
+              value: {{ .Values.postgres.host | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: document-processor
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "eventpulse.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "document-processor") | nindent 4 }}
+  ports:
+    - port: {{ .Values.services.documentProcessor.port }}
+      targetPort: {{ .Values.services.documentProcessor.port }}
+{{- end }}

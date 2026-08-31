@@ -1,0 +1,21 @@
+1. The eventpulse platform has been deployed into namespace {{ .Values.namespace }}.
+
+   Enabled services:
+{{- if .Values.services.ingestionGateway.enabled }}
+   - ingestion-gateway        (port {{ .Values.services.ingestionGateway.port }})
+{{- end }}
+{{- if .Values.services.documentProcessor.enabled }}
+   - document-processor       (port {{ .Values.services.documentProcessor.port }})
+{{- end }}
+{{- if .Values.services.metricsAggregator.enabled }}
+   - metrics-aggregator
+{{- end }}
+{{- if .Values.services.mcpServer.enabled }}
+   - mcp-server
+{{- end }}
+
+2. Ensure external dependencies are reachable from the cluster:
+   - Kafka brokers:  {{ .Values.kafka.brokers }}
+   - Postgres:       {{ .Values.postgres.host }}:{{ .Values.postgres.port }}/{{ .Values.postgres.database }}
+
+3. Iterate locally with `make dev-env` (docker-compose) before deploying Helm.

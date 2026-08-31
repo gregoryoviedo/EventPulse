@@ -1,0 +1,45 @@
+{{- if .Values.services.ingestionGateway.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestion-gateway
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "eventpulse.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.services.ingestionGateway.replicas }}
+  selector:
+    matchLabels:
+      {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "ingestion-gateway") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "eventpulse.labels" . | nindent 8 }}
+        {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "ingestion-gateway") | nindent 8 }}
+    spec:
+      containers:
+        - name: ingestion-gateway
+          image: "{{ .Values.image.registry }}/{{ .Values.services.ingestionGateway.image }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.services.ingestionGateway.port }}
+          env:
+            - name: KAFKA_BROKERS
+              value: {{ .Values.kafka.brokers | quote }}
+            - name: POSTGRES_HOST
+              value: {{ .Values.postgres.host | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingestion-gateway
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "eventpulse.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "ingestion-gateway") | nindent 4 }}
+  ports:
+    - port: {{ .Values.services.ingestionGateway.port }}
+      targetPort: {{ .Values.services.ingestionGateway.port }}
+{{- end }}

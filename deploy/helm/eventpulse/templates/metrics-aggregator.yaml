@@ -1,0 +1,29 @@
+{{- if .Values.services.metricsAggregator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics-aggregator
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "eventpulse.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.services.metricsAggregator.replicas }}
+  selector:
+    matchLabels:
+      {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "metrics-aggregator") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "eventpulse.labels" . | nindent 8 }}
+        {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "metrics-aggregator") | nindent 8 }}
+    spec:
+      containers:
+        - name: metrics-aggregator
+          image: "{{ .Values.image.registry }}/{{ .Values.services.metricsAggregator.image }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: KAFKA_BROKERS
+              value: {{ .Values.kafka.brokers | quote }}
+            - name: POSTGRES_HOST
+              value: {{ .Values.postgres.host | quote }}
+{{- end }}

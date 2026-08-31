@@ -1,0 +1,26 @@
+# Binaries & build artifacts
+*.exe
+*.out
+/bin/
+/dist/
+services/*/ingestion-gateway
+services/*/mcp-server
+services/*/metrics-aggregator
+
+# Go
+go.sum.bak
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment & secrets
+.env
+*.local
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

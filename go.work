@@ -1,0 +1,9 @@
+go 1.23
+
+use (
+	./pkg/events
+	./pkg/telemetry
+	./services/ingestion-gateway
+	./services/mcp-server
+	./services/metrics-aggregator
+)
