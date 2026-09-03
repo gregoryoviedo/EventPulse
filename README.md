@@ -106,6 +106,43 @@ servicio directamente en el host, apunta al listener externo:
 KAFKA_BROKERS=localhost:29092 go run ./services/ingestion-gateway
 ```
 
+## Indexación RAG (`document-processor`)
+
+El consumidor lee `raw.events`, se queda con los eventos `document_uploaded`,
+parte `payload.content` con `RecursiveCharacterTextSplitter` (500 / 50 por
+defecto) y escribe los vectores en la tabla `document_embeddings` de pgvector
+(`services/document-processor/schema.sql`), que es la que consulta el
+`mcp-server`.
+
+Los ids de cada chunk se derivan del documento, así que una reentrega de Kafka
+hace *upsert* en lugar de duplicar; los chunks que sobran de una versión anterior
+se borran tras insertar la nueva.
+
+Variables de entorno: ver `services/document-processor/.env.example`. Las claves
+mínimas son `KAFKA_BROKERS`, `POSTGRES_URI` (o los `POSTGRES_*` por separado),
+`OPENAI_API_KEY` y `OPENAI_BASE_URL` para apuntar a un endpoint compatible con
+OpenAI. Con `EMBEDDINGS_PROVIDER=fake` el pipeline funciona sin API key ni red,
+útil para pruebas locales.
+
+```bash
+# Levanta el servicio sin necesitar credenciales de embeddings
+EMBEDDINGS_PROVIDER=fake docker compose up -d document-processor
+
+# Publica un documento a través del gateway
+curl -X POST localhost:8080/api/v1/events \
+  -H 'Content-Type: application/json' \
+  -d '{"source":"docs-api","event_type":"document_uploaded",
+       "payload":{"document_id":"doc-1","content":"texto largo a indexar..."}}'
+
+# Comprueba los chunks almacenados
+docker compose exec postgres psql -U postgres -d eventpulse_db \
+  -c 'select document_id, chunk_index from document_embeddings order by 1,2;'
+```
+
+Sondas HTTP en el puerto 8000: `/healthz` (liveness) y `/readyz` (incluye los
+contadores del consumidor). El topic `docs.embedded` sigue reservado para
+notificar aguas abajo; hoy el servicio escribe directamente en pgvector.
+
 ## Despliegue en Kubernetes
 
 ```bash

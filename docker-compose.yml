@@ -72,7 +72,16 @@ services:
         condition: service_healthy
     environment:
       - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC=raw.events
       - POSTGRES_HOST=postgres
+      - POSTGRES_DB=eventpulse_db
+      # Set OPENAI_API_KEY (and OPENAI_BASE_URL for a gateway) in your shell or
+      # in a root .env file. Use EMBEDDINGS_PROVIDER=fake to run without one.
+      - EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-1536}
 
   metrics-aggregator:
     build:

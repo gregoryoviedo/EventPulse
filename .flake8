@@ -1,0 +1,6 @@
+; Python linting rules for services/document-processor, applied by `make lint`.
+[flake8]
+max-line-length = 100
+extend-exclude = .venv,venv,__pycache__
+; E203 disagrees with black's slice formatting; W503/W504 contradict each other.
+extend-ignore = E203,W503,W504
