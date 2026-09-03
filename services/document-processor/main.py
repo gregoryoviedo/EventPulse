@@ -18,6 +18,7 @@ import sys
 import threading
 
 from fastapi import FastAPI, Response, status
+from pydantic import BaseModel, Field
 
 from config import ConfigError, Settings, load_settings
 from consumer import ConsumerStats, RawEventConsumer
@@ -35,6 +36,13 @@ app = FastAPI(title="eventpulse-document-processor")
 _HEALTH_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
 
+class SearchRequest(BaseModel):
+    """Body of POST /api/v1/search."""
+
+    query: str = Field(min_length=1, description="Text to search for")
+    top_k: int = Field(default=3, ge=1, description="Number of chunks to return")
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     """Liveness: the process is up and serving."""
@@ -49,6 +57,35 @@ def readyz(response: Response) -> dict:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 
     return {"status": "ok" if snapshot["running"] else "starting", **snapshot}
+
+
+@app.post("/api/v1/search")
+def search(request: SearchRequest, response: Response) -> dict:
+    """Return the chunks most similar to a query, with relevance scores.
+
+    The store is wired onto the app by main() once the bootstrap finishes; before
+    that the endpoint reports itself as not ready.
+    """
+    store = getattr(app.state, "store", None)
+    if store is None:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+        return {"detail": "vector store is not ready yet"}
+
+    hits = store.search(request.query, request.top_k)
+
+    return {
+        "query": request.query,
+        "results": [
+            {
+                "chunk_id": document.id,
+                "content": document.page_content,
+                "score": score,
+                "metadata": document.metadata,
+            }
+            for document, score in hits
+        ],
+    }
 
 
 def main() -> int:
@@ -72,6 +109,7 @@ def main() -> int:
         # Fail fast on the dependencies: a missing table or an unreachable
         # embedding endpoint should stop the process, not every message.
         store = EmbeddingStore.bootstrap(settings, build_embeddings(settings), logger)
+        app.state.store = store
         pipeline = DocumentPipeline.build(settings, store, logger)
 
         consumer = RawEventConsumer(settings, _handler(pipeline), logger, STATS)

@@ -58,7 +58,25 @@ class DocumentPipeline:
         chunks = self._split(document)
         ids = [chunk_id(document.document_id, index) for index in range(len(chunks))]
 
-        self._store.replace_document(document.document_id, ids, chunks)
+        try:
+            self._store.replace_document(document.document_id, ids, chunks)
+        except Exception as exc:  # noqa: BLE001 - a broken gateway must not kill the service
+            # A gateway answering with something that is not JSON (an HTML error
+            # page, a proxy banner, ...) surfaces here as a parsing/API error.
+            # Re-raised as InvalidEventError so the consumer drops the message
+            # like any other poison one, instead of crashing the whole process.
+            self._logger.error(
+                "embedding endpoint returned an unparseable response",
+                extra={
+                    "fields": {
+                        "event_id": document.event_id,
+                        "document_id": document.document_id,
+                        "error": str(exc),
+                    }
+                },
+                exc_info=exc,
+            )
+            raise InvalidEventError("embedding endpoint returned a non-JSON response") from exc
 
         self._logger.info(
             "document indexed",

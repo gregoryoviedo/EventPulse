@@ -100,6 +100,18 @@ class EmbeddingStore:
         self._vector_store.add_documents(list(chunks), ids=list(ids))
         self._prune(document_id, ids)
 
+    def search(self, query: str, top_k: int) -> list[tuple[Document, float]]:
+        """Retrieve the chunks closest to a query, best first.
+
+        The store is built with the cosine distance strategy, so LangChain's
+        similarity_search_with_score returns a distance (0 = identical, higher =
+        farther apart). It is converted to a cosine similarity score
+        (1 - distance) so a higher number means a better match.
+        """
+        hits = self._vector_store.similarity_search_with_score(query, k=top_k)
+
+        return [(document, 1.0 - distance) for document, distance in hits]
+
     def _prune(self, document_id: str, keep: Iterable[str]) -> None:
         statement = sql.SQL(
             "DELETE FROM {table} WHERE document_id = %s AND NOT (langchain_id = ANY(%s::uuid[]))"
@@ -145,8 +157,9 @@ def apply_schema(pool: ConnectionPool, table: str, dimensions: int) -> None:
 def build_embeddings(settings: Settings) -> Embeddings:
     """Instantiate the embedding model described by the environment.
 
-    The OpenAI client is pointed at OPENAI_BASE_URL when set, which is how the
-    service talks to an OpenAI-compatible gateway instead of api.openai.com.
+    The OpenAI client is pointed at OPENAI_BASE_URL (defaulting to the OpenCode
+    zen gateway), which is how the service talks to an OpenAI-compatible gateway
+    instead of api.openai.com.
     """
     if not settings.uses_openai:
         # Offline stand-in so the pipeline can be exercised without an API key.
@@ -158,10 +171,10 @@ def build_embeddings(settings: Settings) -> Embeddings:
 
     kwargs: dict[str, object] = {
         "model": settings.embedding_model,
-        "api_key": settings.openai_api_key,
+        "openai_api_key": settings.openai_api_key,
     }
     if settings.openai_base_url:
-        kwargs["base_url"] = settings.openai_base_url
+        kwargs["openai_api_base"] = settings.openai_base_url
     # Shortening the vector is only supported by the text-embedding-3 family;
     # other models reject the parameter outright.
     if settings.embedding_model.startswith("text-embedding-3"):

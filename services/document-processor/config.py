@@ -24,13 +24,16 @@ DEFAULT_KAFKA_TOPIC: Final = "raw.events"
 # Points at a broker listening directly on the host. Inside docker-compose the
 # service receives KAFKA_BROKERS=kafka:9092; from the host use the external
 # listener instead: KAFKA_BROKERS=localhost:29092.
-DEFAULT_KAFKA_BROKERS: Final = "localhost:9092"
+DEFAULT_KAFKA_BROKERS: Final = "localhost:29092"
 DEFAULT_POSTGRES_URI: Final = "postgresql://postgres:postgres@localhost:5432/eventpulse_db"
 DEFAULT_EMBEDDINGS_TABLE: Final = "document_embeddings"
 DEFAULT_EMBEDDING_MODEL: Final = "text-embedding-3-small"
 # Native width of text-embedding-3-small; it is also the vector(n) size of the
 # table, so changing it requires recreating document_embeddings.
 DEFAULT_EMBEDDING_DIMENSIONS: Final = 1536
+# OpenAI-compatible gateway the service talks to by default; OPENAI_BASE_URL
+# overrides it when set.
+DEFAULT_OPENAI_BASE_URL: Final = "https://opencode.ai/zen/go/v1"
 DEFAULT_DOCUMENT_EVENT_TYPES: Final = "document_uploaded"
 
 # Postgres identifiers cannot be bound as query parameters, so the table name
@@ -131,7 +134,7 @@ def load_settings() -> Settings:
         embedding_model=_getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
         embedding_dimensions=_getenv_int("EMBEDDING_DIMENSIONS", DEFAULT_EMBEDDING_DIMENSIONS),
         openai_api_key=api_key,
-        openai_base_url=_getenv("OPENAI_BASE_URL", "") or None,
+        openai_base_url=_getenv("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL) or None,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         document_event_types=event_types,
