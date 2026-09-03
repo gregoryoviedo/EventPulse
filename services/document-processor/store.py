@@ -20,7 +20,7 @@ from langchain_postgres import PGEngine, PGVectorStore
 from psycopg import sql
 from psycopg_pool import ConnectionPool
 
-from config import Settings
+from config import ConfigError, Settings
 
 # Payload keys promoted to real columns; anything else lands in the
 # langchain_metadata JSON column.
@@ -157,27 +157,71 @@ def apply_schema(pool: ConnectionPool, table: str, dimensions: int) -> None:
 def build_embeddings(settings: Settings) -> Embeddings:
     """Instantiate the embedding model described by the environment.
 
-    The OpenAI client is pointed at OPENAI_BASE_URL (defaulting to the OpenCode
-    zen gateway), which is how the service talks to an OpenAI-compatible gateway
-    instead of api.openai.com.
+    * openai: OpenAI client pointed at OPENAI_BASE_URL (defaulting to the OpenCode
+      zen gateway), which is how the service talks to an OpenAI-compatible gateway
+      instead of api.openai.com.
+    * huggingface: Hugging Face serverless models through the current
+      InferenceClient-based adapter (HuggingFaceEndpointEmbeddings), which routes
+      to router.huggingface.co. The endpoint is probed at boot so a wrong token,
+      an unknown model or a dimension mismatch with the table fails the process
+      instead of every single message.
     """
-    if not settings.uses_openai:
-        # Offline stand-in so the pipeline can be exercised without an API key.
-        from langchain_core.embeddings import DeterministicFakeEmbedding
+    if settings.embeddings_provider == "openai":
+        from langchain_openai import OpenAIEmbeddings
 
-        return DeterministicFakeEmbedding(size=settings.embedding_dimensions)
+        kwargs: dict[str, object] = {
+            "model": settings.embedding_model,
+            "openai_api_key": settings.openai_api_key,
+        }
+        if settings.openai_base_url:
+            kwargs["openai_api_base"] = settings.openai_base_url
+        # Shortening the vector is only supported by the text-embedding-3 family;
+        # other models reject the parameter outright.
+        if settings.embedding_model.startswith("text-embedding-3"):
+            kwargs["dimensions"] = settings.embedding_dimensions
 
-    from langchain_openai import OpenAIEmbeddings
+        return OpenAIEmbeddings(**kwargs)  # type: ignore[arg-type]
 
-    kwargs: dict[str, object] = {
-        "model": settings.embedding_model,
-        "openai_api_key": settings.openai_api_key,
-    }
-    if settings.openai_base_url:
-        kwargs["openai_api_base"] = settings.openai_base_url
-    # Shortening the vector is only supported by the text-embedding-3 family;
-    # other models reject the parameter outright.
-    if settings.embedding_model.startswith("text-embedding-3"):
-        kwargs["dimensions"] = settings.embedding_dimensions
+    if settings.embeddings_provider == "huggingface":
+        # HuggingFaceInferenceAPIEmbeddings (langchain-community) hardcodes the
+        # retired api-inference.huggingface.co endpoint, which Hugging Face
+        # turned off in favour of router.huggingface.co. HuggingFaceEndpointEmbeddings
+        # (langchain-huggingface) reaches the same serverless models through the
+        # current InferenceClient-based API, so it is used instead.
+        from langchain_huggingface import HuggingFaceEndpointEmbeddings
 
-    return OpenAIEmbeddings(**kwargs)  # type: ignore[arg-type]
+        embeddings = HuggingFaceEndpointEmbeddings(
+            model=settings.embedding_model,
+            huggingfacehub_api_token=settings.huggingfacehub_api_token,
+        )
+        _verify_embedding_dimensions(embeddings, settings)
+
+        return embeddings
+
+    # Offline stand-in so the pipeline can be exercised without an API key.
+    from langchain_core.embeddings import DeterministicFakeEmbedding
+
+    return DeterministicFakeEmbedding(size=settings.embedding_dimensions)
+
+
+def _verify_embedding_dimensions(embeddings: Embeddings, settings: Settings) -> None:
+    """Probe the embedding endpoint at boot so failures surface early.
+
+    A rejected token, an unknown model (404) or a model whose vector width differs
+    from the vector(n) column is caught here, at startup, instead of on the first
+    Kafka message.
+    """
+    try:
+        vector = embeddings.embed_query("eventpulse dimension probe")
+    except Exception as exc:  # noqa: BLE001 - surfaced as a configuration problem
+        raise ConfigError(
+            f"embedding endpoint for {settings.embedding_model!r} failed: {exc}"
+        ) from exc
+
+    width = len(vector)
+    if width != settings.embedding_dimensions:
+        raise ConfigError(
+            f"model {settings.embedding_model!r} returns {width}-dimension vectors "
+            f"but EMBEDDING_DIMENSIONS is {settings.embedding_dimensions}; "
+            "set EMBEDDING_DIMENSIONS to match the model (bge-large-en-v1.5 = 1024)"
+        )

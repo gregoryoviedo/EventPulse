@@ -2,6 +2,14 @@
 langchain-text-splitters==0.3.9
 langchain-openai==0.2.14
 langchain-postgres==0.0.17
+# Keep the whole stack on the langchain-core 0.3 line: langchain-openai 0.2.x and
+# langchain-postgres 0.0.x are not compatible with langchain-core 1.x.
+langchain-core==0.3.86
+# Hugging Face embeddings through the serverless API. HuggingFaceEndpointEmbeddings
+# uses the modern InferenceClient, which routes to router.huggingface.co (the old
+# api-inference.huggingface.co endpoint was retired).
+langchain-huggingface==0.3.1
+huggingface_hub==1.30.0
 # Bootstraps the document_embeddings schema and prunes stale chunks.
 psycopg[binary]==3.2.9
 psycopg-pool==3.2.4

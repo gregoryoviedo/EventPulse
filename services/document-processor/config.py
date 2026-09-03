@@ -62,6 +62,7 @@ class Settings:
     embedding_dimensions: int
     openai_api_key: str
     openai_base_url: str | None
+    huggingfacehub_api_token: str
 
     chunk_size: int
     chunk_overlap: int
@@ -86,6 +87,10 @@ class Settings:
     def uses_openai(self) -> bool:
         return self.embeddings_provider == "openai"
 
+    @property
+    def uses_huggingface(self) -> bool:
+        return self.embeddings_provider == "huggingface"
+
 
 def load_settings() -> Settings:
     """Build the settings from the environment, validating what must be valid.
@@ -94,13 +99,22 @@ def load_settings() -> Settings:
     picks up credentials without exporting them.
     """
     provider = _getenv("EMBEDDINGS_PROVIDER", "openai").lower()
-    if provider not in ("openai", "fake"):
-        raise ConfigError(f"EMBEDDINGS_PROVIDER must be 'openai' or 'fake', got {provider!r}")
+    if provider not in ("openai", "huggingface", "fake"):
+        raise ConfigError(
+            f"EMBEDDINGS_PROVIDER must be 'openai', 'huggingface' or 'fake', got {provider!r}"
+        )
 
     api_key = _getenv("OPENAI_API_KEY", "")
     if provider == "openai" and not api_key:
         raise ConfigError(
             "OPENAI_API_KEY is required when EMBEDDINGS_PROVIDER=openai; "
+            "set EMBEDDINGS_PROVIDER=fake to run without an embedding endpoint"
+        )
+
+    hf_token = _getenv("HUGGINGFACEHUB_API_TOKEN", "")
+    if provider == "huggingface" and not hf_token:
+        raise ConfigError(
+            "HUGGINGFACEHUB_API_TOKEN is required when EMBEDDINGS_PROVIDER=huggingface; "
             "set EMBEDDINGS_PROVIDER=fake to run without an embedding endpoint"
         )
 
@@ -135,6 +149,7 @@ def load_settings() -> Settings:
         embedding_dimensions=_getenv_int("EMBEDDING_DIMENSIONS", DEFAULT_EMBEDDING_DIMENSIONS),
         openai_api_key=api_key,
         openai_base_url=_getenv("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL) or None,
+        huggingfacehub_api_token=hf_token,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         document_event_types=event_types,
