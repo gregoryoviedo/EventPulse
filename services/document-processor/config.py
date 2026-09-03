@@ -27,14 +27,17 @@ DEFAULT_KAFKA_TOPIC: Final = "raw.events"
 DEFAULT_KAFKA_BROKERS: Final = "localhost:29092"
 DEFAULT_POSTGRES_URI: Final = "postgresql://postgres:postgres@localhost:5432/eventpulse_db"
 DEFAULT_EMBEDDINGS_TABLE: Final = "document_embeddings"
-DEFAULT_EMBEDDING_MODEL: Final = "text-embedding-3-small"
-# Native width of text-embedding-3-small; it is also the vector(n) size of the
+DEFAULT_EMBEDDING_MODEL: Final = "BAAI/bge-large-en-v1.5"
+# Native width of bge-large-en-v1.5; it is also the vector(n) size of the
 # table, so changing it requires recreating document_embeddings.
-DEFAULT_EMBEDDING_DIMENSIONS: Final = 1536
-# OpenAI-compatible gateway the service talks to by default; OPENAI_BASE_URL
-# overrides it when set.
-DEFAULT_OPENAI_BASE_URL: Final = "https://opencode.ai/zen/go/v1"
+DEFAULT_EMBEDDING_DIMENSIONS: Final = 1024
+# Optional OpenAI-compatible gateway override; the huggingface provider is the
+# default, so there is no gateway default. OPENAI_API_BASE (and the legacy
+# OPENAI_BASE_URL) point the openai provider somewhere when set.
+DEFAULT_OPENAI_BASE_URL: Final = ""
 DEFAULT_DOCUMENT_EVENT_TYPES: Final = "document_uploaded"
+# Generation (RAG completion) knobs.
+DEFAULT_LLM_MODEL: Final = "Qwen/Qwen2.5-72B-Instruct"
 
 # Postgres identifiers cannot be bound as query parameters, so the table name
 # is validated instead of escaped.
@@ -63,6 +66,10 @@ class Settings:
     openai_api_key: str
     openai_base_url: str | None
     huggingfacehub_api_token: str
+
+    llm_provider: str
+    llm_model: str
+    google_api_key: str
 
     chunk_size: int
     chunk_overlap: int
@@ -98,7 +105,7 @@ def load_settings() -> Settings:
     A `.env` file next to the service is loaded at import time, so a local run
     picks up credentials without exporting them.
     """
-    provider = _getenv("EMBEDDINGS_PROVIDER", "openai").lower()
+    provider = _getenv("EMBEDDINGS_PROVIDER", "huggingface").lower()
     if provider not in ("openai", "huggingface", "fake"):
         raise ConfigError(
             f"EMBEDDINGS_PROVIDER must be 'openai', 'huggingface' or 'fake', got {provider!r}"
@@ -116,6 +123,28 @@ def load_settings() -> Settings:
         raise ConfigError(
             "HUGGINGFACEHUB_API_TOKEN is required when EMBEDDINGS_PROVIDER=huggingface; "
             "set EMBEDDINGS_PROVIDER=fake to run without an embedding endpoint"
+        )
+
+    llm_provider = _getenv("LLM_PROVIDER", "huggingface").lower()
+    if llm_provider not in ("openai", "huggingface", "google", "fake"):
+        raise ConfigError(
+            f"LLM_PROVIDER must be 'openai', 'huggingface', 'google' or 'fake', "
+            f"got {llm_provider!r}"
+        )
+    if llm_provider == "openai" and not api_key:
+        raise ConfigError(
+            "OPENAI_API_KEY is required when LLM_PROVIDER=openai; "
+            "set LLM_PROVIDER=fake to run without a generation endpoint"
+        )
+    if llm_provider == "huggingface" and not hf_token:
+        raise ConfigError(
+            "HUGGINGFACEHUB_API_TOKEN is required when LLM_PROVIDER=huggingface; "
+            "set LLM_PROVIDER=fake to run without a generation endpoint"
+        )
+    google_api_key = _getenv("GOOGLE_API_KEY", "")
+    if llm_provider == "google" and not google_api_key:
+        raise ConfigError(
+            "GOOGLE_API_KEY is required when LLM_PROVIDER=google"
         )
 
     table = _getenv("EMBEDDINGS_TABLE", DEFAULT_EMBEDDINGS_TABLE)
@@ -148,8 +177,15 @@ def load_settings() -> Settings:
         embedding_model=_getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
         embedding_dimensions=_getenv_int("EMBEDDING_DIMENSIONS", DEFAULT_EMBEDDING_DIMENSIONS),
         openai_api_key=api_key,
-        openai_base_url=_getenv("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL) or None,
+        openai_base_url=(
+            _getenv("OPENAI_API_BASE", "")
+            or _getenv("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL)
+            or None
+        ),
         huggingfacehub_api_token=hf_token,
+        llm_provider=llm_provider,
+        llm_model=_getenv("LLM_MODEL", DEFAULT_LLM_MODEL),
+        google_api_key=google_api_key,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         document_event_types=event_types,

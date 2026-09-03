@@ -6,8 +6,9 @@ the chunks and stores them in the `document_embeddings` pgvector table, which th
 mcp-server later queries for retrieval.
 
 This module is the composition root: it is the only place where configuration,
-the Kafka consumer, the LangChain pipeline and the HTTP health server are wired
-together. The consumer owns the main thread; the health server runs beside it.
+the Kafka consumer, the LangChain pipeline and the HTTP server (probes plus the
+search and generate endpoints) are wired together. The consumer owns the main
+thread; the HTTP server runs beside it.
 """
 
 from __future__ import annotations
@@ -18,17 +19,22 @@ import sys
 import threading
 
 from fastapi import FastAPI, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from config import ConfigError, Settings, load_settings
 from consumer import ConsumerStats, RawEventConsumer
 from events import RawEvent, UploadedDocument
+from llm import build_rag_chain, format_context, format_sources
 from logging_config import setup_logging
 from pipeline import DocumentPipeline
 from store import EmbeddingStore, build_embeddings
 
 # Shared with the consumer so the probes can report what the loop is doing.
 STATS = ConsumerStats()
+
+# Reused by the HTTP endpoints, which run in the uvicorn thread while the
+# consumer owns the main one.
+_LOGGER = logging.getLogger(__name__)
 
 app = FastAPI(title="eventpulse-document-processor")
 
@@ -41,6 +47,21 @@ class SearchRequest(BaseModel):
 
     query: str = Field(min_length=1, description="Text to search for")
     top_k: int = Field(default=3, ge=1, description="Number of chunks to return")
+
+
+class GenerateRequest(BaseModel):
+    """Body of POST /api/v1/generate."""
+
+    query: str = Field(min_length=1, description="Question to answer from the index")
+    top_k: int = Field(default=3, ge=1, description="Number of chunks to use as context")
+
+    @field_validator("query")
+    @classmethod
+    def _query_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("query must not be blank")
+
+        return value
 
 
 @app.get("/healthz")
@@ -88,6 +109,60 @@ def search(request: SearchRequest, response: Response) -> dict:
     }
 
 
+@app.post("/api/v1/generate")
+def generate(request: GenerateRequest, response: Response) -> dict:
+    """Answer a question grounded on the indexed chunks (RAG completion).
+
+    Retrieves the most relevant chunks, grounds the generation on them and
+    returns the answer plus the sources it cites. A query that matches nothing
+    still gets a 200 with a clarifying answer; an upstream model failure maps
+    to a 503.
+    """
+    store = getattr(app.state, "store", None)
+    chain = getattr(app.state, "rag_chain", None)
+    if store is None or chain is None:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+        return {"detail": "generation is not ready yet"}
+
+    hits = store.search(request.query, request.top_k)
+    if not hits:
+        return {
+            "query": request.query,
+            "answer": (
+                "No se encontraron documentos indexados para responder la "
+                "consulta. Agrega documentos o reformula la pregunta."
+            ),
+            "sources": [],
+        }
+
+    context = format_context(hits)
+
+    try:
+        message = chain.invoke({"context": context, "question": request.query})
+    except Exception as exc:  # noqa: BLE001 - an upstream failure must stay a 503
+        _LOGGER.error(
+            "generation failed",
+            extra={
+                "fields": {
+                    "query": request.query,
+                    "top_k": request.top_k,
+                    "error": str(exc),
+                }
+            },
+            exc_info=exc,
+        )
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+        return {"detail": "the language model is unavailable, try again later"}
+
+    return {
+        "query": request.query,
+        "answer": message.content,
+        "sources": format_sources(hits),
+    }
+
+
 def main() -> int:
     """Run the service until a signal arrives; returns the process exit code."""
     try:
@@ -110,10 +185,15 @@ def main() -> int:
         # embedding endpoint should stop the process, not every message.
         store = EmbeddingStore.bootstrap(settings, build_embeddings(settings), logger)
         app.state.store = store
+        app.state.rag_chain = build_rag_chain(settings)
         pipeline = DocumentPipeline.build(settings, store, logger)
 
         consumer = RawEventConsumer(settings, _handler(pipeline), logger, STATS)
         consumer.run(stop)
+    except ConfigError as exc:
+        logger.error("invalid configuration", extra={"fields": {"error": str(exc)}})
+
+        return 1
     except Exception as exc:  # noqa: BLE001 - top level guard, logged and reported
         logger.error("service stopped with error", exc_info=exc)
 

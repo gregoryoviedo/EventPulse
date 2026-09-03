@@ -119,10 +119,10 @@ hace *upsert* en lugar de duplicar; los chunks que sobran de una versión anteri
 se borran tras insertar la nueva.
 
 Variables de entorno: ver `services/document-processor/.env.example`. Las claves
-mínimas son `KAFKA_BROKERS`, `POSTGRES_URI` (o los `POSTGRES_*` por separado),
-`OPENAI_API_KEY` y `OPENAI_BASE_URL` para apuntar a un endpoint compatible con
-OpenAI. Con `EMBEDDINGS_PROVIDER=fake` el pipeline funciona sin API key ni red,
-útil para pruebas locales.
+mínimas son `KAFKA_BROKERS`, `POSTGRES_URI` (o los `POSTGRES_*` por separado) y
+`HUGGINGFACEHUB_API_TOKEN`, ya que Hugging Face es el proveedor por defecto de
+embeddings y LLM. Con `EMBEDDINGS_PROVIDER=fake` el pipeline funciona sin API
+key ni red, útil para pruebas locales.
 
 ```bash
 # Levanta el servicio sin necesitar credenciales de embeddings
