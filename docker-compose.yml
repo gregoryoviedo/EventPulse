@@ -98,6 +98,8 @@ services:
     build:
       context: .
       dockerfile: deploy/docker/metrics-aggregator.Dockerfile
+    ports:
+      - "9090:9090"
     depends_on:
       kafka:
         condition: service_healthy
@@ -105,6 +107,9 @@ services:
         condition: service_healthy
     environment:
       - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC=raw.events
+      - KAFKA_GROUP_ID=metrics-aggregator
+      - HTTP_ADDR=:9090
       - POSTGRES_HOST=postgres
 
   mcp-server:
