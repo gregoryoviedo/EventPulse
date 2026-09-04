@@ -14,18 +14,25 @@ dev-env-down:
 	$(COMPOSE) down -v
 
 ## lint: run Go linter and Python linter (if available)
+##
+## golangci-lint is run per module: in workspace mode (go.work) a bare
+## `golangci-lint run ./...` from the repo root does not resolve because `./...`
+## would span several modules.
 lint:
-	golangci-lint run ./...
+	@for m in $(GO_MODULES); do (cd $$m && golangci-lint run ./...) || exit 1; done
 	@command -v flake8 >/dev/null 2>&1 && flake8 services/document-processor || echo "flake8 not installed, skipping python lint"
 
 ## build-all: build every Go module and the docker images
+##
+## The `./...` pattern must run inside each module: from the repo root it would
+## match across the go.work modules and the go command rejects it.
 build-all:
-	go build ./...
+	@for m in $(GO_MODULES); do (cd $$m && go build ./...) || exit 1; done
 	$(COMPOSE) build
 
 ## test: run Go tests across all modules
 test:
-	go test ./...
+	@for m in $(GO_MODULES); do (cd $$m && go test ./...) || exit 1; done
 
 ## tidy: go mod tidy + go work sync across modules
 tidy:

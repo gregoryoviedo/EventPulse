@@ -64,7 +64,7 @@ eventpulse/
 
 ## Arrancar el entorno de desarrollo
 
-Requisitos: Docker + Docker Compose, Go 1.23, Python 3.12.
+Requisitos: Docker + Docker Compose, Go 1.25, Python 3.12.
 
 ```bash
 # 1. Levanta Kafka + Postgres(pgvector) + los 4 servicios

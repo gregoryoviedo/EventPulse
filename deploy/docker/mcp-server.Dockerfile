@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.23 AS build
+FROM golang:1.25 AS build
 WORKDIR /src
 COPY pkg/ ./pkg/
 COPY services/mcp-server/ ./services/mcp-server/
