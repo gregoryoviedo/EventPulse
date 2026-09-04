@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
+
 	"github.com/eventpulse/telemetry"
 
 	"github.com/eventpulse/metrics-aggregator/internal/application"
@@ -39,6 +41,7 @@ const (
 )
 
 func main() {
+	_ = godotenv.Load()
 	if err := run(); err != nil {
 		slog.Error("service stopped with error", slog.Any("error", err))
 		os.Exit(1)

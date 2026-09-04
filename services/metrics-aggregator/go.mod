@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/eventpulse/events v0.0.0
 	github.com/eventpulse/telemetry v0.0.0
+	github.com/joho/godotenv v1.5.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.2
 	github.com/segmentio/kafka-go v0.4.51
