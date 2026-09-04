@@ -25,8 +25,20 @@ var EventProcessingDurationSeconds = prometheus.NewHistogramVec(
 	[]string{"source", "event_type"},
 )
 
+// EventsDLQTotal counts every event forwarded to the dead letter queue,
+// labelled by the reason it was rejected (e.g. invalid_json, missing_fields).
+// It is registered on the default Prometheus registry in init().
+var EventsDLQTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "events_dlq_total",
+		Help: "Total number of events forwarded to the dead letter queue, labelled by rejection reason.",
+	},
+	[]string{"reason"},
+)
+
 func init() {
 	prometheus.MustRegister(EventProcessingDurationSeconds)
+	prometheus.MustRegister(EventsDLQTotal)
 }
 
 // Metrics bundles the collectors the service exposes on /metrics.
@@ -46,6 +58,9 @@ type Metrics struct {
 	// EventProcessingDurationSeconds measures the wall-clock time spent
 	// processing a single Kafka message, broken down by source and event type.
 	EventProcessingDurationSeconds *prometheus.HistogramVec
+	// EventsDLQTotal counts every event forwarded to the dead letter queue,
+	// labelled by the rejection reason.
+	EventsDLQTotal *prometheus.CounterVec
 }
 
 // New builds all collectors and registers them on a fresh registry.
@@ -73,6 +88,7 @@ func New() *Metrics {
 			},
 		),
 		EventProcessingDurationSeconds: EventProcessingDurationSeconds,
+		EventsDLQTotal:                EventsDLQTotal,
 	}
 
 	m.registry.MustRegister(
@@ -80,6 +96,7 @@ func New() *Metrics {
 		m.DocumentProcessingLatencySeconds,
 		m.ActiveKafkaConsumers,
 		m.EventProcessingDurationSeconds,
+		m.EventsDLQTotal,
 	)
 
 	return m

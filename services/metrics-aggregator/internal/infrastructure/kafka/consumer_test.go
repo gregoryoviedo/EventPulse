@@ -94,6 +94,54 @@ func (f *fakeFetcher) isClosed() bool {
 	return f.closed
 }
 
+// fakeWriter substitutes the real kafka-go writer in tests, recording every
+// message it is asked to publish.
+type fakeWriter struct {
+	mu       sync.Mutex
+	messages []kafkago.Message
+	writeErr error
+	closed   bool
+}
+
+func (w *fakeWriter) WriteMessages(_ context.Context, msgs ...kafkago.Message) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.writeErr != nil {
+		return w.writeErr
+	}
+
+	w.messages = append(w.messages, msgs...)
+
+	return nil
+}
+
+func (w *fakeWriter) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.closed = true
+
+	return nil
+}
+
+func (w *fakeWriter) written() []kafkago.Message {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	out := make([]kafkago.Message, len(w.messages))
+	copy(out, w.messages)
+
+	return out
+}
+
+func (w *fakeWriter) isClosed() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.closed
+}
+
 // spyAggregator records every event the consumer hands over.
 type spyAggregator struct {
 	mu     sync.Mutex
@@ -163,21 +211,28 @@ func TestConsumerAggregatesAndCommitsValidMessage(t *testing.T) {
 	}
 }
 
-func TestConsumerSkipsInvalidJSONButKeepsMoving(t *testing.T) {
+func TestConsumerForwardsInvalidJSONToDLQAndCommits(t *testing.T) {
 	m := metrics.New()
 	spy := &spyAggregator{}
 	fake := &fakeFetcher{
 		messages: []kafkago.Message{{
-			Topic:  "raw.events",
-			Offset: 7,
-			Value:  []byte("this is not json"),
+			Topic:     "raw.events",
+			Partition: 2,
+			Offset:    7,
+			Value:     []byte("this is not json"),
 		}},
 	}
+	dlq := &fakeWriter{}
 
 	c := NewConsumer(Config{
 		Brokers: []string{"kafka:9092"},
 	}, spy, m, nil)
 	c.reader = fake
+	c.dlqWriter = dlq
+
+	// The counter is a package-level global, so compare the delta around the
+	// run instead of the absolute value.
+	before := testutil.ToFloat64(m.EventsDLQTotal.WithLabelValues("invalid_json"))
 
 	if err := runAndWait(c, fake, func() bool { return fake.committedCount() == 1 }); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -188,6 +243,102 @@ func TestConsumerSkipsInvalidJSONButKeepsMoving(t *testing.T) {
 	}
 	if offsets := fake.committedOffsets(); len(offsets) != 1 || offsets[0] != 7 {
 		t.Fatalf("committed offsets = %v, want [7]", offsets)
+	}
+
+	written := dlq.written()
+	if len(written) != 1 {
+		t.Fatalf("DLQ messages = %d, want 1", len(written))
+	}
+	if got := string(written[0].Value); got != "this is not json" {
+		t.Fatalf("DLQ message value = %q, want the original payload", got)
+	}
+	if written[0].Topic != "raw.events.dlq" {
+		t.Fatalf("DLQ topic = %q, want raw.events.dlq", written[0].Topic)
+	}
+	if got := dlqHeaderValue(written[0], "dlq_reason"); got != "invalid_json" {
+		t.Fatalf("dlq_reason header = %q, want invalid_json", got)
+	}
+
+	if got := testutil.ToFloat64(m.EventsDLQTotal.WithLabelValues("invalid_json")) - before; got != 1 {
+		t.Fatalf("events_dlq_total{reason=invalid_json} incremented by %v, want 1", got)
+	}
+}
+
+func TestConsumerForwardsMissingFieldsToDLQ(t *testing.T) {
+	m := metrics.New()
+	spy := &spyAggregator{}
+	fake := &fakeFetcher{
+		messages: []kafkago.Message{{
+			Topic:  "raw.events",
+			Offset: 9,
+			Value:  []byte(`{"id":"evt-2","type":"","source":"docs-api","timestamp":1700000000000}`),
+		}},
+	}
+	dlq := &fakeWriter{}
+
+	c := NewConsumer(Config{
+		Brokers: []string{"kafka:9092"},
+	}, spy, m, nil)
+	c.reader = fake
+	c.dlqWriter = dlq
+
+	before := testutil.ToFloat64(m.EventsDLQTotal.WithLabelValues("missing_fields"))
+
+	if err := runAndWait(c, fake, func() bool { return fake.committedCount() == 1 }); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if got := spy.snapshot(); len(got) != 0 {
+		t.Fatalf("aggregated events = %d, want 0 for a missing-fields message", len(got))
+	}
+	if offsets := fake.committedOffsets(); len(offsets) != 1 || offsets[0] != 9 {
+		t.Fatalf("committed offsets = %v, want [9]", offsets)
+	}
+
+	written := dlq.written()
+	if len(written) != 1 {
+		t.Fatalf("DLQ messages = %d, want 1", len(written))
+	}
+	if got := dlqHeaderValue(written[0], "dlq_reason"); got != "missing_fields" {
+		t.Fatalf("dlq_reason header = %q, want missing_fields", got)
+	}
+
+	if got := testutil.ToFloat64(m.EventsDLQTotal.WithLabelValues("missing_fields")) - before; got != 1 {
+		t.Fatalf("events_dlq_total{reason=missing_fields} incremented by %v, want 1", got)
+	}
+}
+
+func TestConsumerCommitsEvenWhenDLQWriteFails(t *testing.T) {
+	m := metrics.New()
+	spy := &spyAggregator{}
+	fake := &fakeFetcher{
+		messages: []kafkago.Message{{
+			Topic:  "raw.events",
+			Offset: 11,
+			Value:  []byte("not json"),
+		}},
+	}
+	dlq := &fakeWriter{writeErr: errors.New("broker unreachable")}
+
+	c := NewConsumer(Config{
+		Brokers: []string{"kafka:9092"},
+	}, spy, m, nil)
+	c.reader = fake
+	c.dlqWriter = dlq
+
+	// The counter is a package-level global, so compare the delta around the
+	// run instead of the absolute value.
+	before := testutil.ToFloat64(m.EventsDLQTotal.WithLabelValues("invalid_json"))
+
+	if err := runAndWait(c, fake, func() bool { return fake.committedCount() == 1 }); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if offsets := fake.committedOffsets(); len(offsets) != 1 || offsets[0] != 11 {
+		t.Fatalf("committed offsets = %v, want [11] to keep the queue moving", offsets)
+	}
+	if got := testutil.ToFloat64(m.EventsDLQTotal.WithLabelValues("invalid_json")) - before; got != 0 {
+		t.Fatalf("events_dlq_total{reason=invalid_json} incremented by %v, want 0 when the forward failed", got)
 	}
 }
 
@@ -234,9 +385,11 @@ func TestConsumerSurfacesFetchErrors(t *testing.T) {
 func TestConsumerCloseClosesReader(t *testing.T) {
 	m := metrics.New()
 	fake := &fakeFetcher{}
+	dlq := &fakeWriter{}
 
 	c := NewConsumer(Config{Brokers: []string{"kafka:9092"}}, &spyAggregator{}, m, nil)
 	c.reader = fake
+	c.dlqWriter = dlq
 
 	if err := c.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
@@ -244,6 +397,21 @@ func TestConsumerCloseClosesReader(t *testing.T) {
 	if !fake.isClosed() {
 		t.Fatal("reader was not closed")
 	}
+	if !dlq.isClosed() {
+		t.Fatal("DLQ writer was not closed")
+	}
+}
+
+// dlqHeaderValue returns the value of the given header on a forwarded message,
+// or "" when the header is absent.
+func dlqHeaderValue(msg kafkago.Message, key string) string {
+	for _, h := range msg.Headers {
+		if h.Key == key {
+			return string(h.Value)
+		}
+	}
+
+	return ""
 }
 
 // runAndWait runs the consumer until predicate holds, then cancels the context

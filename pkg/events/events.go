@@ -12,6 +12,9 @@ const (
 	TopicDocsEmbedded = "docs.embedded"
 	// TopicMetricsTicks carries aggregated metric samples.
 	TopicMetricsTicks = "metrics.ticks"
+	// TopicRawEventsDLQ carries messages that failed to be processed and were
+	// rejected by a consumer, for later inspection and replay.
+	TopicRawEventsDLQ = "raw.events.dlq"
 )
 
 // Event is the base envelope for all platform events.

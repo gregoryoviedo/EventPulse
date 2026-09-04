@@ -16,6 +16,9 @@ type Config struct {
 	KafkaBrokers []string
 	// KafkaTopic is the topic the consumer reads from.
 	KafkaTopic string
+	// KafkaDLQTopic is the dead letter queue topic unprocessable messages are
+	// forwarded to.
+	KafkaDLQTopic string
 	// KafkaGroupID is the consumer group the service joins.
 	KafkaGroupID string
 	// HTTPAddr is the listen address for the metrics and health endpoints.
@@ -28,6 +31,7 @@ func Load() Config {
 	return Config{
 		KafkaBrokers: kafkaBrokers(getenv("KAFKA_BROKERS", "localhost:9092")),
 		KafkaTopic:   getenv("KAFKA_TOPIC", events.TopicRawEvents),
+		KafkaDLQTopic: getenv("KAFKA_DLQ_TOPIC", events.TopicRawEventsDLQ),
 		KafkaGroupID: getenv("KAFKA_GROUP_ID", "metrics-aggregator"),
 		HTTPAddr:     getenv("HTTP_ADDR", ":9090"),
 	}

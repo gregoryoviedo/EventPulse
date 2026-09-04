@@ -70,9 +70,10 @@ func run() error {
 	m := metrics.New()
 	aggregator := application.New(m)
 	consumer := kafka.NewConsumer(kafka.Config{
-		Brokers: cfg.KafkaBrokers,
-		Topic:   cfg.KafkaTopic,
-		GroupID: cfg.KafkaGroupID,
+		Brokers:  cfg.KafkaBrokers,
+		Topic:    cfg.KafkaTopic,
+		DLQTopic: cfg.KafkaDLQTopic,
+		GroupID:  cfg.KafkaGroupID,
 	}, aggregator, m, logger)
 
 	srv := &http.Server{
@@ -89,6 +90,23 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Best-effort provisioning of the DLQ topic: failure is non-fatal because
+	// broker-side auto-creation usually catches up, but this removes the race
+	// on the very first poison message.
+	{
+		setupCtx, cancel := context.WithTimeout(ctx, shutdownTimeout)
+		err := consumer.EnsureTopic(setupCtx)
+		cancel()
+		if err != nil {
+			logger.Warn("could not provision DLQ topic, falling back to auto-creation",
+				slog.String("kafka_dlq_topic", cfg.KafkaDLQTopic),
+				slog.Any("error", err),
+			)
+		} else {
+			logger.Info("kafka DLQ topic ready", slog.String("kafka_dlq_topic", cfg.KafkaDLQTopic))
+		}
+	}
+
 	consumerErr := make(chan error, 1)
 	go func() {
 		consumerErr <- consumer.Run(ctx)
@@ -100,6 +118,7 @@ func run() error {
 			slog.String("addr", cfg.HTTPAddr),
 			slog.Any("kafka_brokers", cfg.KafkaBrokers),
 			slog.String("kafka_topic", cfg.KafkaTopic),
+			slog.String("kafka_dlq_topic", cfg.KafkaDLQTopic),
 			slog.String("kafka_group_id", cfg.KafkaGroupID),
 		)
 
