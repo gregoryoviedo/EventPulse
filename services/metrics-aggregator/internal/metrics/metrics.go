@@ -13,6 +13,22 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// EventProcessingDurationSeconds measures how long the consumer takes to
+// process a single incoming Kafka message, broken down by source and event
+// type. It is registered on the default Prometheus registry in init().
+var EventProcessingDurationSeconds = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "event_processing_duration_seconds",
+		Help:    "Duration of processing a single Kafka message in seconds, labelled by source and event type.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"source", "event_type"},
+)
+
+func init() {
+	prometheus.MustRegister(EventProcessingDurationSeconds)
+}
+
 // Metrics bundles the collectors the service exposes on /metrics.
 type Metrics struct {
 	registry *prometheus.Registry
@@ -27,6 +43,9 @@ type Metrics struct {
 	// ActiveKafkaConsumers reports the number of consumers running in this
 	// process (1 while the loop is up, 0 after it stops).
 	ActiveKafkaConsumers prometheus.Gauge
+	// EventProcessingDurationSeconds measures the wall-clock time spent
+	// processing a single Kafka message, broken down by source and event type.
+	EventProcessingDurationSeconds *prometheus.HistogramVec
 }
 
 // New builds all collectors and registers them on a fresh registry.
@@ -53,12 +72,14 @@ func New() *Metrics {
 				Help: "Number of active Kafka consumers in this process.",
 			},
 		),
+		EventProcessingDurationSeconds: EventProcessingDurationSeconds,
 	}
 
 	m.registry.MustRegister(
 		m.EventsProcessedTotal,
 		m.DocumentProcessingLatencySeconds,
 		m.ActiveKafkaConsumers,
+		m.EventProcessingDurationSeconds,
 	)
 
 	return m

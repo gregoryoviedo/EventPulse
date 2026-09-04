@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/eventpulse/events"
 	"github.com/eventpulse/metrics-aggregator/internal/domain"
@@ -130,6 +131,8 @@ func (c *Consumer) Run(ctx context.Context) error {
 // are logged and skipped: they can never succeed, so committing keeps the
 // partition moving instead of blocking on a poison message.
 func (c *Consumer) process(ctx context.Context, msg kafkago.Message) {
+	start := time.Now()
+
 	var envelope events.Event
 	if err := json.Unmarshal(msg.Value, &envelope); err != nil {
 		c.logger.Warn("dropping unprocessable message",
@@ -150,6 +153,9 @@ func (c *Consumer) process(ctx context.Context, msg kafkago.Message) {
 			slog.Any("error", err),
 		)
 	}
+
+	duration := time.Since(start).Seconds()
+	c.metrics.EventProcessingDurationSeconds.WithLabelValues(envelope.Source, envelope.Type).Observe(duration)
 }
 
 // Close releases the broker connection and leaves the consumer group.
