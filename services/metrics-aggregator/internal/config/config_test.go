@@ -3,6 +3,7 @@ package config
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestLoadDefaults(t *testing.T) {
@@ -10,6 +11,8 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("KAFKA_TOPIC", "")
 	t.Setenv("KAFKA_DLQ_TOPIC", "")
 	t.Setenv("KAFKA_GROUP_ID", "")
+	t.Setenv("KAFKA_METRICS_TICKS_TOPIC", "")
+	t.Setenv("KAFKA_METRICS_TICK_INTERVAL", "")
 	t.Setenv("HTTP_ADDR", "")
 
 	cfg := Load()
@@ -26,6 +29,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.KafkaGroupID != "metrics-aggregator" {
 		t.Fatalf("KafkaGroupID = %q, want metrics-aggregator", cfg.KafkaGroupID)
 	}
+	if cfg.KafkaMetricsTicksTopic != "metrics.ticks" {
+		t.Fatalf("KafkaMetricsTicksTopic = %q, want metrics.ticks", cfg.KafkaMetricsTicksTopic)
+	}
+	if cfg.KafkaMetricsTicksInterval != 15*time.Second {
+		t.Fatalf("KafkaMetricsTicksInterval = %v, want 15s", cfg.KafkaMetricsTicksInterval)
+	}
 	if cfg.HTTPAddr != ":9090" {
 		t.Fatalf("HTTPAddr = %q, want :9090", cfg.HTTPAddr)
 	}
@@ -36,6 +45,8 @@ func TestLoadFromEnvironment(t *testing.T) {
 	t.Setenv("KAFKA_TOPIC", "metrics.ticks")
 	t.Setenv("KAFKA_DLQ_TOPIC", "raw.events.dlq.prod")
 	t.Setenv("KAFKA_GROUP_ID", "my-group")
+	t.Setenv("KAFKA_METRICS_TICKS_TOPIC", "metrics.ticks.prod")
+	t.Setenv("KAFKA_METRICS_TICK_INTERVAL", "30s")
 	t.Setenv("HTTP_ADDR", ":8080")
 
 	cfg := Load()
@@ -52,6 +63,12 @@ func TestLoadFromEnvironment(t *testing.T) {
 	}
 	if cfg.KafkaGroupID != "my-group" {
 		t.Fatalf("KafkaGroupID = %q, want my-group", cfg.KafkaGroupID)
+	}
+	if cfg.KafkaMetricsTicksTopic != "metrics.ticks.prod" {
+		t.Fatalf("KafkaMetricsTicksTopic = %q, want metrics.ticks.prod", cfg.KafkaMetricsTicksTopic)
+	}
+	if cfg.KafkaMetricsTicksInterval != 30*time.Second {
+		t.Fatalf("KafkaMetricsTicksInterval = %v, want 30s", cfg.KafkaMetricsTicksInterval)
 	}
 	if cfg.HTTPAddr != ":8080" {
 		t.Fatalf("HTTPAddr = %q, want :8080", cfg.HTTPAddr)

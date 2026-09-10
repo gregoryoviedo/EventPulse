@@ -167,6 +167,13 @@ func shutdown(srv *http.Server, producer *kafka.Producer, logger *slog.Logger) e
 		logger.Info("kafka producer closed")
 	}
 
+	// Flush any pending spans and metrics before the process exits.
+	if err := telemetry.Shutdown(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("telemetry shutdown: %w", err))
+	} else {
+		logger.Info("telemetry flushed")
+	}
+
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}

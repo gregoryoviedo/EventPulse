@@ -21,9 +21,62 @@ spec:
         - name: mcp-server
           image: "{{ .Values.image.registry }}/{{ .Values.services.mcpServer.image }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.services.mcpServer.port }}
+              name: mcp
           env:
-            - name: KAFKA_BROKERS
-              value: {{ .Values.kafka.brokers | quote }}
+            - name: HTTP_ADDR
+              value: "{{ printf ":%v" .Values.services.mcpServer.port }}"
             - name: POSTGRES_HOST
               value: {{ .Values.postgres.host | quote }}
+            - name: POSTGRES_PORT
+              value: {{ .Values.postgres.port | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.user | quote }}
+            - name: EMBEDDINGS_PROVIDER
+              value: {{ .Values.mcp.embeddingsProvider | quote }}
+            - name: EMBEDDING_MODEL
+              value: {{ .Values.mcp.embeddingModel | quote }}
+            - name: EMBEDDING_DIMENSIONS
+              value: {{ .Values.mcp.embeddingDimensions | quote }}
+            {{- if .Values.mcp.huggingfaceToken }}
+            - name: HUGGINGFACEHUB_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcp.secretName }}
+                  key: huggingface-token
+            {{- end }}
+            {{- if .Values.mcp.openaiApiKey }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcp.secretName }}
+                  key: openai-api-key
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: mcp
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: mcp
+          resources:
+            {{- toYaml .Values.services.mcpServer.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "eventpulse.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "mcp-server") | nindent 4 }}
+  ports:
+    - port: {{ .Values.services.mcpServer.port }}
+      targetPort: {{ .Values.services.mcpServer.port }}
 {{- end }}

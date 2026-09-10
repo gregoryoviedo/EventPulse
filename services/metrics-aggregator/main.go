@@ -66,7 +66,8 @@ func run() error {
 	cfg := config.Load()
 
 	// Wire the layers: metrics collectors <- aggregator <- Kafka consumer,
-	// plus the HTTP server serving the same collectors.
+	// plus the HTTP server serving the same collectors and the producer that
+	// publishes aggregated samples to metrics.ticks.
 	m := metrics.New()
 	aggregator := application.New(m)
 	consumer := kafka.NewConsumer(kafka.Config{
@@ -75,6 +76,10 @@ func run() error {
 		DLQTopic: cfg.KafkaDLQTopic,
 		GroupID:  cfg.KafkaGroupID,
 	}, aggregator, m, logger)
+	tickProducer := kafka.NewProducer(kafka.ProducerConfig{
+		Brokers: cfg.KafkaBrokers,
+		Topic:   cfg.KafkaMetricsTicksTopic,
+	})
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -110,6 +115,23 @@ func run() error {
 	consumerErr := make(chan error, 1)
 	go func() {
 		consumerErr <- consumer.Run(ctx)
+	}()
+
+	// Publish a snapshot of the aggregated counters to metrics.ticks on a fixed
+	// interval. A failed publish is logged and retried on the next tick; the
+	// cumulative counts mean no sample is lost by skipping one.
+	go func() {
+		ticker := time.NewTicker(cfg.KafkaMetricsTicksInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				publishTick(ctx, tickProducer, aggregator, logger)
+			}
+		}
 	}()
 
 	serverErr := make(chan error, 1)
@@ -160,6 +182,19 @@ func run() error {
 		logger.Info("kafka consumer closed")
 	}
 
+	if err := tickProducer.Close(); err != nil {
+		errs = append(errs, err)
+	} else {
+		logger.Info("kafka metrics tick producer closed")
+	}
+
+	// Flush any pending spans and metrics before the process exits.
+	if err := telemetry.Shutdown(shutdownCtx); err != nil {
+		errs = append(errs, fmt.Errorf("telemetry shutdown: %w", err))
+	} else {
+		logger.Info("telemetry flushed")
+	}
+
 	if fatalErr != nil {
 		return errors.Join(append([]error{fatalErr}, errs...)...)
 	}
@@ -171,4 +206,23 @@ func run() error {
 	logger.Info("shutdown complete")
 
 	return nil
+}
+
+// publishTick sends every aggregated sample to the metrics.ticks topic,
+// logging (and skipping) any publish that fails.
+func publishTick(
+	ctx context.Context,
+	producer *kafka.Producer,
+	aggregator *application.Aggregator,
+	logger *slog.Logger,
+) {
+	for _, sample := range aggregator.Snapshot() {
+		if err := producer.PublishTick(ctx, sample); err != nil {
+			logger.Error("could not publish metrics tick",
+				slog.String("source", sample.Source),
+				slog.String("event_type", sample.EventType),
+				slog.Any("error", err),
+			)
+		}
+	}
 }

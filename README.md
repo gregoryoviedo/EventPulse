@@ -4,8 +4,8 @@ Monorepo para la plataforma **eventpulse**: arquitectura de microservicios con
 soporte de **RAG sobre pgvector**, mensajería con **Kafka** y despliegue en
 **Kubernetes** (Helm).
 
-> Estado: andamiaje inicial. Solo estructura y configuraciones base; la lógica
-> de negocio aún no está implementada.
+> Estado: servicios funcionales (ingesta, indexación RAG, agregación de métricas
+> y servidor MCP). La telemetría se exporta por OTLP cuando hay collector.
 
 ## Servicios
 
@@ -142,6 +142,75 @@ docker compose exec postgres psql -U postgres -d eventpulse_db \
 Sondas HTTP en el puerto 8000: `/healthz` (liveness) y `/readyz` (incluye los
 contadores del consumidor). El topic `docs.embedded` sigue reservado para
 notificar aguas abajo; hoy el servicio escribe directamente en pgvector.
+
+## Servidor MCP (`mcp-server`)
+
+Expone la búsqueda RAG como un servidor **Model Context Protocol** sobre
+**Streamable HTTP** (`mark3labs/mcp-go`): consulta `document_embeddings`
+directamente en pgvector, sin pasar por el `document-processor`.
+
+La herramienta es:
+
+| Tool        | Descripción                                                        |
+|-------------|--------------------------------------------------------------------|
+| `rag_search`| `query` (obligatoria) + `top_k` (1–10, default 3) → chunks con score y metadata |
+
+Para que los vectores de la consulta alineen con los indexados, `EMBEDDINGS_PROVIDER`
+y `EMBEDDING_MODEL` deben coincidir con los que usó el `document-processor`
+(`EMBEDDINGS_PROVIDER=fake` solo prueba el cableado MCP; no rankea datos
+indexados con el fake de Python). Puedes reutilizar las credenciales del
+`.env` del `document-processor` (`HUGGINGFACEHUB_API_TOKEN`, `EMBEDDING_MODEL`,
+`EMBEDDING_DIMENSIONS`) exportándolas en el shell antes de arrancar:
+
+```bash
+set -a; source services/document-processor/.env; set +a
+EMBEDDINGS_PROVIDER=huggingface docker compose up -d mcp-server
+```
+
+El cliente de embeddings de Hugging Face del `mcp-server` habla con el mismo
+endpoint de feature-extraction (`router.huggingface.co/hf-inference/models/...`)
+que `HuggingFaceEndpointEmbeddings` del procesador, así que las búsquedas
+quedan alineadas con lo indexado.
+
+```bash
+# Levanta el servicio sin necesitar credenciales de embeddings
+EMBEDDINGS_PROVIDER=fake docker compose up -d mcp-server
+
+# Health y readiness
+curl localhost:8090/healthz
+curl localhost:8090/readyz
+
+# Inicializa una sesión MCP sobre Streamable HTTP
+curl -X POST localhost:8090/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+
+# Lista las herramientas
+curl -X POST localhost:8090/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+```
+
+Configuración: ver `services/mcp-server/.env.example`. Las claves mínimas son
+`POSTGRES_URI` (o `POSTGRES_*`), `EMBEDDINGS_PROVIDER` y el token/llave del
+provider elegido. El `mcp-server` no consume Kafka.
+
+## Métricas (`metrics-aggregator`)
+
+Además de exponer las métricas Prometheus en `GET /metrics`, el agregador
+publica un *snapshot* acumulado de los contadores en el tópico `metrics.ticks`
+cada `KAFKA_METRICS_TICK_INTERVAL` (default `15s`), con un evento por
+combinación `source`/`event_type`:
+
+```json
+{"id":"...","type":"metrics_tick","source":"docs-api","timestamp":1710000000000,
+ "payload":{"event_type":"document_uploaded","count":42}}
+```
+
+Aún no hay consumidor de `metrics.ticks`: el tópico queda reservado para el
+consumidor que lo persista aguas abajo, igual que `docs.embedded`.
 
 ## Despliegue en Kubernetes
 

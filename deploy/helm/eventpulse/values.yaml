@@ -26,6 +26,25 @@ services:
     enabled: true
     replicas: 1
     image: mcp-server
+    port: 8090
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# mcp-server RAG embedding configuration. The provider must match the one used
+# by document-processor so the query vectors align with the indexed ones.
+# huggingfaceToken/openaiApiKey are referenced from the secret below.
+mcp:
+  embeddingsProvider: huggingface
+  embeddingModel: BAAI/bge-large-en-v1.5
+  embeddingDimensions: 1024
+  secretName: mcp-server-secret
+  huggingfaceToken: ""
+  openaiApiKey: ""
 
 # External dependencies (provided out-of-cluster for dev; override for prod).
 kafka:

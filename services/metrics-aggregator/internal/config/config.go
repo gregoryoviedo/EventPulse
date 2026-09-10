@@ -6,6 +6,7 @@ package config
 import (
 	"os"
 	"strings"
+	"time"
 
 	"github.com/eventpulse/events"
 )
@@ -21,6 +22,10 @@ type Config struct {
 	KafkaDLQTopic string
 	// KafkaGroupID is the consumer group the service joins.
 	KafkaGroupID string
+	// KafkaMetricsTicksTopic is the topic aggregated samples are published to.
+	KafkaMetricsTicksTopic string
+	// KafkaMetricsTicksInterval is how often a snapshot is published.
+	KafkaMetricsTicksInterval time.Duration
 	// HTTPAddr is the listen address for the metrics and health endpoints.
 	HTTPAddr string
 }
@@ -29,11 +34,13 @@ type Config struct {
 // every unset variable so the service runs out of the box.
 func Load() Config {
 	return Config{
-		KafkaBrokers: kafkaBrokers(getenv("KAFKA_BROKERS", "localhost:9092")),
-		KafkaTopic:   getenv("KAFKA_TOPIC", events.TopicRawEvents),
-		KafkaDLQTopic: getenv("KAFKA_DLQ_TOPIC", events.TopicRawEventsDLQ),
-		KafkaGroupID: getenv("KAFKA_GROUP_ID", "metrics-aggregator"),
-		HTTPAddr:     getenv("HTTP_ADDR", ":9090"),
+		KafkaBrokers:              kafkaBrokers(getenv("KAFKA_BROKERS", "localhost:9092")),
+		KafkaTopic:                getenv("KAFKA_TOPIC", events.TopicRawEvents),
+		KafkaDLQTopic:             getenv("KAFKA_DLQ_TOPIC", events.TopicRawEventsDLQ),
+		KafkaGroupID:              getenv("KAFKA_GROUP_ID", "metrics-aggregator"),
+		KafkaMetricsTicksTopic:    getenv("KAFKA_METRICS_TICKS_TOPIC", events.TopicMetricsTicks),
+		KafkaMetricsTicksInterval: getenvDuration("KAFKA_METRICS_TICK_INTERVAL", 15*time.Second),
+		HTTPAddr:                  getenv("HTTP_ADDR", ":9090"),
 	}
 }
 
@@ -59,6 +66,16 @@ func kafkaBrokers(raw string) []string {
 // getenv returns the environment variable value or fallback when unset/empty.
 func getenv(key, fallback string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+
+	return fallback
+}
+
+// getenvDuration parses a duration environment variable (e.g. "30s"), falling
+// back when unset or malformed.
+func getenvDuration(key string, fallback time.Duration) time.Duration {
+	if v, err := time.ParseDuration(strings.TrimSpace(os.Getenv(key))); err == nil {
 		return v
 	}
 

@@ -88,6 +88,37 @@ func TestHandleFallsBackToLocalDurationWithoutTimestamp(t *testing.T) {
 	}
 }
 
+func TestSnapshotReturnsSortedCumulativeCounts(t *testing.T) {
+	m := metrics.New()
+	agg := New(m)
+
+	events := []events.Event{
+		{ID: "e1", Type: "document_uploaded", Source: "docs-api"},
+		{ID: "e2", Type: "order.created", Source: "checkout-api"},
+		{ID: "e3", Type: "document_uploaded", Source: "docs-api"},
+	}
+
+	for _, ev := range events {
+		if err := agg.Handle(context.Background(), ev); err != nil {
+			t.Fatalf("Handle() error = %v", err)
+		}
+	}
+
+	samples := agg.Snapshot()
+	want := []Sample{
+		{Source: "checkout-api", EventType: "order.created", Count: 1},
+		{Source: "docs-api", EventType: "document_uploaded", Count: 2},
+	}
+	if len(samples) != len(want) {
+		t.Fatalf("Snapshot() = %+v, want %+v", samples, want)
+	}
+	for i := range want {
+		if samples[i] != want[i] {
+			t.Fatalf("Snapshot()[%d] = %+v, want %+v", i, samples[i], want[i])
+		}
+	}
+}
+
 // histogramSample extracts the sample count and cumulative sum of a histogram.
 func histogramSample(t *testing.T, h interface{ Write(*dto.Metric) error }) (uint64, float64) {
 	t.Helper()
