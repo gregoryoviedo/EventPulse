@@ -1,0 +1,14 @@
+# Persistent fix: keep the k3s-bundled Traefik ingress service as NodePort
+# instead of LoadBalancer. k3s's in-tree ServiceLB (klipper-lb) otherwise
+# assigns the node IP (192.168.30.224) as an ExternalIP and binds host port
+# 80/443 on it, shadowing the CasaOS gateway that also listens on :80.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    service:
+      spec:
+        type: NodePort
