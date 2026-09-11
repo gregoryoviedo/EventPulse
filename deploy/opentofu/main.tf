@@ -1,7 +1,8 @@
-# Bootstrap the local k3d cluster and import the container images.
+# Bootstrap the Kubernetes cluster and prepare the container images.
 resource "null_resource" "bootstrap_k3d" {
   triggers = {
     cluster  = var.cluster_name
+    mode     = var.bootstrap_mode
     registry = var.image_registry
     tag      = var.image_tag
     ports    = join(",", [for p in var.ingress_ports : tostring(p)])
@@ -11,6 +12,7 @@ resource "null_resource" "bootstrap_k3d" {
     command = "${path.module}/bootstrap.sh"
     environment = {
       K3D_CLUSTER    = var.cluster_name
+      BOOTSTRAP_MODE = var.bootstrap_mode
       IMAGE_REGISTRY = var.image_registry
       IMAGE_TAG      = var.image_tag
       INGRESS_PORTS  = join(",", [for p in var.ingress_ports : tostring(p)])
@@ -39,6 +41,26 @@ resource "helm_release" "eventpulse" {
   set {
     name  = "image.tag"
     value = var.image_tag
+  }
+  set {
+    name  = "image.registryUsername"
+    value = var.registry_username
+  }
+  set {
+    name  = "image.registryPassword"
+    value = var.registry_password
+  }
+  set_list {
+    name  = "image.pullSecrets"
+    value = var.pull_secrets
+  }
+  set {
+    name  = "ingress.hosts.ingestionGateway"
+    value = var.ingress_host_ingestion
+  }
+  set {
+    name  = "ingress.hosts.mcpServer"
+    value = var.ingress_host_mcp
   }
   set {
     name  = "postgres.password"

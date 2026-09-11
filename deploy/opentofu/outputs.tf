@@ -1,6 +1,11 @@
 output "cluster_name" {
-  description = "k3d cluster name."
+  description = "k3d cluster name (bootstrap_mode k3d only)."
   value       = var.cluster_name
+}
+
+output "bootstrap_mode" {
+  description = "Cluster bootstrap strategy in use."
+  value       = var.bootstrap_mode
 }
 
 output "kubeconfig" {
@@ -13,19 +18,14 @@ output "namespace" {
   value       = var.namespace
 }
 
-output "ingress_base_url" {
-  description = "Base URL to reach the ingress loadbalancer."
-  value       = "localhost:${var.ingress_ports[0]}"
-}
-
 output "ingestion_gateway_url" {
   description = "URL to reach the ingestion-gateway healthz through the ingress."
-  value       = "http://localhost:${var.ingress_ports[0]}/healthz (Host: events.localhost)"
+  value       = "http://${var.ingress_host_ingestion}/healthz"
 }
 
 output "mcp_server_url" {
   description = "URL to reach the mcp-server healthz through the ingress."
-  value       = "http://localhost:${var.ingress_ports[1]}/healthz (Host: mcp.localhost)"
+  value       = "http://${var.ingress_host_mcp}/healthz"
 }
 
 output "kafka_brokers" {

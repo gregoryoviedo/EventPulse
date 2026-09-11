@@ -273,6 +273,44 @@ embeddings reales, setea `embeddings_provider = "huggingface"` y tu token.
 make k8s-dev-env-down     # tofu destroy + k3d cluster delete
 ```
 
+### Producción / Homelab (k3s + GHCR)
+
+En un host Linux (tu homelab) el despliegue usa **k3s nativo** (no k3d) y las
+imágenes publicadas en **GHCR** bajo tu cuenta de GitHub. `bootstrap_mode = "k3s"`
+hace que el bootstrap de OpenTofu instale k3s si falta y apunte al kubeconfig del
+sistema; las imágenes las tira el clúster desde el registry (sin import local).
+
+```bash
+# 1. Publica las imágenes en tu cuenta GHCR (una vez, o desde CI)
+export REGISTRY=ghcr.io/<tu-usuario>
+make images-push            # build + push de los 4 servicios
+
+# 2. Prepara los valores de producción
+cd deploy/opentofu
+cp terraform.tfvars.example terraform.tfvars
+#   bootstrap_mode = "k3s", kubeconfig_path = "/etc/rancher/k3s/k3s.yaml",
+#   image_registry = "ghcr.io/<tu-usuario>", tokens, postgres_password,
+#   registry_username/registry_password (PAT con read:packages si el paquete
+#   es privado), ingress hosts.
+
+# 3. Despliega (instala k3s si hace falta y aplica el chart)
+tofu init
+tofu apply
+```
+
+Detalles de producción:
+- Si los paquetes GHCR son privados, crea un PAT con `read:packages` y pasa
+  `registry_username`/`registry_password`; el chart crea el secret `regcred` y
+  `image.pullSecrets = ["regcred"]` lo adjunta a cada pod.
+- Los PVCs de Kafka y Postgres persisten entre `tofu destroy` (los datos no se
+  borran); haz backup del PVC de Postgres (`document_embeddings`).
+- El Ingress (Traefik de k3s) escucha en `:80`/`:443`; resuelve
+  `events.homelab.local` y `mcp.homelab.local` al IP del homelab (DNS o
+  `/etc/hosts`).
+- Para RAG real usa `embeddings_provider = "huggingface"` con tu token; el
+  procesador y el mcp-server deben usar el mismo modelo (por defecto
+  `BAAI/bge-large-en-v1.5`, 1024 dims).
+
 ### Solo Helm (sin OpenTofu)
 
 ```bash

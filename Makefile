@@ -6,10 +6,14 @@ TOFU      := tofu
 K3D       := k3d
 K3D_CLUSTER := eventpulse
 K3D_PORTS := 18080:80@loadbalancer 18090:80@loadbalancer
+REGISTRY  ?= ghcr.io/eventpulse
+IMG_TAG   ?= 0.1.0
+SERVICES  := ingestion-gateway document-processor metrics-aggregator mcp-server
 
 .PHONY: dev-env dev-env-down lint build-all test clean tidy gen-types \
 	k8s-cluster-up k8s-cluster-down k8s-import-images k8s-dev-env k8s-dev-env-down \
-	tofu-init tofu-plan tofu-apply tofu-destroy k8s-verify
+	tofu-init tofu-plan tofu-apply tofu-destroy k8s-verify \
+	images-build images-push
 
 ## dev-env: start Kafka + Postgres + all services via docker-compose
 dev-env:
@@ -105,3 +109,17 @@ k8s-verify:
 	curl -fsS -X POST -H "Host: events.localhost" localhost:18080/api/v1/events \
 		-H 'Content-Type: application/json' \
 		-d '{"source":"make-verify","event_type":"document_uploaded","payload":{"document_id":"doc-make-001","title":"Verificacion","content":"Evento de prueba desde make k8s-verify."}}'
+
+## images-build: build the four service images for $(REGISTRY)/$(IMG_TAG)
+images-build:
+	@for svc in $(SERVICES); do \
+		echo "Building $$svc..."; \
+		docker build -t "$(REGISTRY)/$$svc:$(IMG_TAG)" -f "deploy/docker/$$svc.Dockerfile" .; \
+	done
+
+## images-push: publish the images to $(REGISTRY) (needs docker login)
+images-push: images-build
+	@for svc in $(SERVICES); do \
+		echo "Pushing $$svc..."; \
+		docker push "$(REGISTRY)/$$svc:$(IMG_TAG)"; \
+	done

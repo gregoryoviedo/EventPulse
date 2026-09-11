@@ -1,17 +1,34 @@
 # Copy to terraform.tfvars and adjust. Secrets must never be committed.
-cluster_name       = "eventpulse"
+
+# Development (k3d on macOS) — default when omitted.
+bootstrap_mode     = "k3s"          # k3d | k3s
+kubeconfig_path    = "/etc/rancher/k3s/k3s.yaml"   # k3s
+# kubeconfig_path  = "~/.kube/config"              # k3d
+
 namespace          = "eventpulse"
-image_registry     = "ghcr.io/eventpulse"
+
+# Images published to your GHCR account (make images-build && images-push).
+image_registry     = "ghcr.io/gregoryoviedo"
 image_tag          = "0.1.0"
+# Image pull when the GHCR packages are private.
+registry_username  = "gregoryoviedo"
+registry_password  = "ghp_xxx"      # GHCR PAT with read:packages
+pull_secrets       = ["regcred"]
+
+# Ingress hostnames (map them to the homelab IP in DNS or /etc/hosts).
+ingress_host_ingestion = "events.homelab.local"
+ingress_host_mcp       = "mcp.homelab.local"
 
 # fake | huggingface | openai
-embeddings_provider = "fake"
-# huggingface_token   = "hf_..."
+embeddings_provider = "huggingface"
+huggingface_token   = "hf_xxx"
 # openai_api_key      = "sk-..."
 
 # fake | huggingface | openai | google
-llm_provider = "fake"
+llm_provider = "huggingface"
 
-postgres_password = "postgres"
+postgres_password = "change-me"
 
-ingress_ports = [18080, 18090]
+# k3d only.
+# cluster_name  = "eventpulse"
+# ingress_ports = [18080, 18090]

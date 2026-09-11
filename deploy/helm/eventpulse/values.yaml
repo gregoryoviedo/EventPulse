@@ -4,6 +4,13 @@ image:
   registry: ghcr.io/eventpulse
   pullPolicy: IfNotPresent
   tag: "0.1.0"
+  # pullSecrets lists existing imagePullSecret names to attach to every pod
+  # (e.g. ["regcred"] when pulling from a private registry).
+  pullSecrets: []
+  # When registryUsername/registryPassword are set, a docker-registry secret
+  # named "regcred" is created and should be added to pullSecrets.
+  registryUsername: ""
+  registryPassword: ""
 
 namespace: eventpulse
 

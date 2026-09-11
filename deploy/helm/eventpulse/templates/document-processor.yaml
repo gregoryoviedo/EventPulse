@@ -28,6 +28,10 @@ spec:
         - name: document-processor
           image: "{{ .Values.image.registry }}/{{ .Values.services.documentProcessor.image }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.image.pullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.services.documentProcessor.port }}
