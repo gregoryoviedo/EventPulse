@@ -30,7 +30,7 @@ resource "helm_release" "eventpulse" {
   name             = "eventpulse"
   chart            = "${path.module}/../helm/eventpulse"
   namespace        = var.namespace
-  create_namespace = true
+  create_namespace = false
   wait             = true
   timeout          = 600
 

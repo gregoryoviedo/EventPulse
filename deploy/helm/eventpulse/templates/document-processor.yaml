@@ -17,6 +17,12 @@ spec:
         {{- include "eventpulse.labels" . | nindent 8 }}
         {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "document-processor") | nindent 8 }}
     spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range $ps := . }}
+        - name: {{ $ps }}
+        {{- end }}
+      {{- end }}
       initContainers:
         - name: wait-for-kafka-topic
           image: {{ .Values.kafka.image | quote }}
@@ -28,10 +34,6 @@ spec:
         - name: document-processor
           image: "{{ .Values.image.registry }}/{{ .Values.services.documentProcessor.image }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- with .Values.image.pullSecrets }}
-          imagePullSecrets:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.services.documentProcessor.port }}
