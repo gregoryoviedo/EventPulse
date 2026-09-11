@@ -98,7 +98,7 @@ func postgresURI() string {
 
 	user := url.UserPassword(
 		getenv("POSTGRES_USER", "postgres"),
-		os.Getenv("POSTGRES_PASSWORD"),
+		getenv("POSTGRES_PASSWORD", "postgres"),
 	)
 
 	u := &url.URL{
