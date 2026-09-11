@@ -2,7 +2,7 @@
 
 Monorepo para la plataforma **eventpulse**: arquitectura de microservicios con
 soporte de **RAG sobre pgvector**, mensajería con **Kafka** y despliegue en
-**Kubernetes** (Helm).
+**Kubernetes** (k3d + Helm) aprovisionado con **OpenTofu**.
 
 > Estado: servicios funcionales (ingesta, indexación RAG, agregación de métricas
 > y servidor MCP). La telemetría se exporta por OTLP cuando hay collector.
@@ -47,7 +47,7 @@ Paquetes compartidos (Go): `pkg/telemetry` (observabilidad) y `pkg/events`
 ```
 eventpulse/
 ├── go.work                  # workspace Go que enlaza todos los módulos
-├── Makefile                 # dev-env, lint, build-all, test, tidy
+├── Makefile                 # dev-env, lint, build-all, test, tidy, k8s-*
 ├── docker-compose.yml       # entorno de desarrollo local
 ├── services/
 │   ├── ingestion-gateway/   # Go
@@ -59,7 +59,8 @@ eventpulse/
 │   └── events/              # Go (compartido)
 └── deploy/
     ├── docker/              # Dockerfiles por servicio
-    └── helm/eventpulse/     # Chart de Helm
+    ├── helm/eventpulse/     # Chart de Helm (K8s)
+    └── opentofu/            # IaC: cluster k3d + despliegue Helm
 ```
 
 ## Arrancar el entorno de desarrollo
@@ -212,15 +213,72 @@ combinación `source`/`event_type`:
 Aún no hay consumidor de `metrics.ticks`: el tópico queda reservado para el
 consumidor que lo persista aguas abajo, igual que `docs.embedded`.
 
-## Despliegue en Kubernetes
+## Despliegue en Kubernetes (k3d + OpenTofu)
+
+La plataforma se despliega en un clúster local de **k3s** vía **k3d** (k3s dentro
+de Docker, no requiere instalación de servicios en el host) y se aprovisiona con
+**OpenTofu** (compatible con Terraform). El chart de Helm incluye los servicios y
+las dependencias (Kafka single-broker KRaft y Postgres/pgvector) **dentro del
+clúster**, así que es autocontenido.
+
+Requisitos: `brew install k3d helm tofu`.
+
+```bash
+# 1. (Opcional) build de imágenes locales usadas por compose
+make build-all
+
+# 2. Despliega todo: crea el clúster k3d, importa las imágenes y
+#    aplica el chart vía OpenTofu
+make k8s-dev-env
+
+# 3. Verificación rápida
+make k8s-verify
+```
+
+`make k8s-dev-env` equivale a `make k8s-cluster-up && make tofu-apply`. El
+`null_resource` de OpenTofu hace el bootstrap del clúster idempotente (crea el
+clúster si no existe e importa las imágenes), y el provider `helm` despliega el
+chart. El `kafka-init` Job crea los topics `raw.events` y `raw.events.dlq`, y los
+Deployments esperan a Kafka/Postgres con `initContainers`.
+
+### Acceso
+
+El Ingress (Traefik incluido en k3d) expone dos hosts; el loadbalancer de k3d
+mapea `18080` y `18090` a `:80`:
+
+| Recurso            | URL                                                        |
+|--------------------|------------------------------------------------------------|
+| ingestion-gateway  | `curl -H "Host: events.localhost" localhost:18080/healthz` |
+| mcp-server (MCP)   | `curl -H "Host: mcp.localhost" localhost:18090/healthz`    |
+| metrics            | `kubectl port-forward svc/metrics-aggregator 9090:9090 -n eventpulse` |
+
+### OpenTofu
+
+```bash
+cd deploy/opentofu
+cp terraform.tfvars.example terraform.tfvars   # ajusta secretos (nunca se commitean)
+tofu init
+tofu plan
+tofu apply
+tofu destroy        # desinstala la release; el clúster queda a elección
+```
+
+Los secretos (token de Hugging Face, API keys, password de Postgres) se pasan por
+`terraform.tfvars` / variables de entorno, nunca hardcodeados. Para usar
+embeddings reales, setea `embeddings_provider = "huggingface"` y tu token.
+
+### Tear down
+
+```bash
+make k8s-dev-env-down     # tofu destroy + k3d cluster delete
+```
+
+### Solo Helm (sin OpenTofu)
 
 ```bash
 helm install eventpulse deploy/helm/eventpulse \
   --namespace eventpulse --create-namespace
 ```
-
-El chart asume que Kafka y Postgres son alcanzables desde el clúster (ver
-`values.yaml`). Ajusta las variables de conexión antes de instalar en producción.
 
 ## Convenciones
 

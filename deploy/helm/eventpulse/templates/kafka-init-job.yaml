@@ -1,0 +1,39 @@
+{{- if .Values.kafka.enabled }}
+{{- $topicInit := printf "%s-topic-init" .Release.Name }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $topicInit }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "eventpulse.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 20
+  template:
+    metadata:
+      labels:
+        {{- include "eventpulse.labels" . | nindent 8 }}
+        {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "kafka-init") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-kafka
+          image: {{ .Values.kafka.image | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              until /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server {{ .Values.kafka.brokers }} >/dev/null 2>&1; do echo "waiting for kafka broker"; sleep 3; done
+      containers:
+        - name: create-topics
+          image: {{ .Values.kafka.image | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              for t in {{ .Values.kafka.topic }} raw.events.dlq; do
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server {{ .Values.kafka.brokers }} --create --if-not-exists --topic "$t" --partitions 1 --replication-factor 1
+              done
+{{- end }}

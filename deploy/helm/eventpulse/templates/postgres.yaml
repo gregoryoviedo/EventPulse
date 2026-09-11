@@ -1,0 +1,80 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "eventpulse.labels" . | nindent 4 }}
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "eventpulse.labels" . | nindent 8 }}
+        {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "postgres") | nindent 8 }}
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image | quote }}
+          ports:
+            - name: pg
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.postgresName }}
+                  key: postgres-user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.postgresName }}
+                  key: postgres-password
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storageSize | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "eventpulse.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "postgres") | nindent 4 }}
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: 5432
+{{- end }}

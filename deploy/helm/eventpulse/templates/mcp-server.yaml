@@ -17,6 +17,13 @@ spec:
         {{- include "eventpulse.labels" . | nindent 8 }}
         {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "mcp-server") | nindent 8 }}
     spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: {{ .Values.postgres.image | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              until pg_isready -h {{ .Values.postgres.host }} -U {{ .Values.postgres.user }} >/dev/null 2>&1; do echo "waiting for postgres"; sleep 3; done
       containers:
         - name: mcp-server
           image: "{{ .Values.image.registry }}/{{ .Values.services.mcpServer.image }}:{{ .Values.image.tag }}"
@@ -35,24 +42,26 @@ spec:
               value: {{ .Values.postgres.database | quote }}
             - name: POSTGRES_USER
               value: {{ .Values.postgres.user | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.postgres.password | quote }}
             - name: EMBEDDINGS_PROVIDER
-              value: {{ .Values.mcp.embeddingsProvider | quote }}
+              value: {{ .Values.embeddings.provider | quote }}
             - name: EMBEDDING_MODEL
-              value: {{ .Values.mcp.embeddingModel | quote }}
+              value: {{ .Values.embeddings.model | quote }}
             - name: EMBEDDING_DIMENSIONS
-              value: {{ .Values.mcp.embeddingDimensions | quote }}
-            {{- if .Values.mcp.huggingfaceToken }}
+              value: {{ .Values.embeddings.dimensions | quote }}
+            {{- if .Values.embeddings.huggingfaceToken }}
             - name: HUGGINGFACEHUB_API_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.mcp.secretName }}
+                  name: {{ .Values.secrets.mcpName }}
                   key: huggingface-token
             {{- end }}
-            {{- if .Values.mcp.openaiApiKey }}
+            {{- if .Values.embeddings.openaiApiKey }}
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.mcp.secretName }}
+                  name: {{ .Values.secrets.mcpName }}
                   key: openai-api-key
             {{- end }}
           livenessProbe:

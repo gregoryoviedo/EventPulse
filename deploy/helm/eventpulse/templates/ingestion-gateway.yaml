@@ -17,17 +17,35 @@ spec:
         {{- include "eventpulse.labels" . | nindent 8 }}
         {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "ingestion-gateway") | nindent 8 }}
     spec:
+      initContainers:
+        - name: wait-for-kafka
+          image: {{ .Values.kafka.image | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              until /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server {{ .Values.kafka.brokers }} >/dev/null 2>&1; do echo "waiting for kafka"; sleep 3; done
       containers:
         - name: ingestion-gateway
           image: "{{ .Values.image.registry }}/{{ .Values.services.ingestionGateway.image }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - containerPort: {{ .Values.services.ingestionGateway.port }}
+            - name: http
+              containerPort: {{ .Values.services.ingestionGateway.port }}
           env:
             - name: KAFKA_BROKERS
               value: {{ .Values.kafka.brokers | quote }}
-            - name: POSTGRES_HOST
-              value: {{ .Values.postgres.host | quote }}
+            - name: KAFKA_TOPIC
+              value: {{ .Values.kafka.topic | quote }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            {{- toYaml .Values.services.ingestionGateway.resources | nindent 12 }}
 ---
 apiVersion: v1
 kind: Service
@@ -40,6 +58,7 @@ spec:
   selector:
     {{- include "eventpulse.selectorLabels" (dict "Release" .Release "component" "ingestion-gateway") | nindent 4 }}
   ports:
-    - port: {{ .Values.services.ingestionGateway.port }}
+    - name: http
+      port: {{ .Values.services.ingestionGateway.port }}
       targetPort: {{ .Values.services.ingestionGateway.port }}
 {{- end }}

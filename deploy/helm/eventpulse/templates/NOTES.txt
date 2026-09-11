@@ -8,14 +8,24 @@
    - document-processor       (port {{ .Values.services.documentProcessor.port }})
 {{- end }}
 {{- if .Values.services.metricsAggregator.enabled }}
-   - metrics-aggregator
+   - metrics-aggregator       (port {{ .Values.services.metricsAggregator.port }})
 {{- end }}
 {{- if .Values.services.mcpServer.enabled }}
-   - mcp-server
+   - mcp-server               (port {{ .Values.services.mcpServer.port }})
+{{- end }}
+{{- if .Values.kafka.enabled }}
+   - kafka (single-broker KRaft) at {{ .Values.kafka.brokers }}
+{{- end }}
+{{- if .Values.postgres.enabled }}
+   - postgres (pgvector) at {{ .Values.postgres.host }}:{{ .Values.postgres.port }}/{{ .Values.postgres.database }}
 {{- end }}
 
-2. Ensure external dependencies are reachable from the cluster:
-   - Kafka brokers:  {{ .Values.kafka.brokers }}
-   - Postgres:       {{ .Values.postgres.host }}:{{ .Values.postgres.port }}/{{ .Values.postgres.database }}
+2. Access through the ingress (k3d loadbalancer maps 18080/18090 -> 80):
+{{- if .Values.services.ingestionGateway.enabled }}
+   - curl -H "Host: {{ .Values.ingress.hosts.ingestionGateway }}" localhost:18080/healthz
+{{- end }}
+{{- if .Values.services.mcpServer.enabled }}
+   - curl -H "Host: {{ .Values.ingress.hosts.mcpServer }}" localhost:18090/healthz
+{{- end }}
 
 3. Iterate locally with `make dev-env` (docker-compose) before deploying Helm.

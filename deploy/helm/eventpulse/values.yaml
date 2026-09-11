@@ -13,15 +13,19 @@ services:
     replicas: 1
     image: ingestion-gateway
     port: 8080
+    resources: {}
   documentProcessor:
     enabled: true
     replicas: 1
     image: document-processor
     port: 8000
+    resources: {}
   metricsAggregator:
     enabled: true
     replicas: 1
     image: metrics-aggregator
+    port: 9090
+    resources: {}
   mcpServer:
     enabled: true
     replicas: 1
@@ -35,22 +39,50 @@ services:
         cpu: 500m
         memory: 512Mi
 
-# mcp-server RAG embedding configuration. The provider must match the one used
-# by document-processor so the query vectors align with the indexed ones.
-# huggingfaceToken/openaiApiKey are referenced from the secret below.
-mcp:
-  embeddingsProvider: huggingface
-  embeddingModel: BAAI/bge-large-en-v1.5
-  embeddingDimensions: 1024
-  secretName: mcp-server-secret
+# RAG embedding configuration shared by document-processor and mcp-server.
+# Use provider: fake to run without an external embedding endpoint.
+embeddings:
+  provider: fake # fake | huggingface | openai
+  model: BAAI/bge-large-en-v1.5
+  dimensions: 1024
+  table: document_embeddings
   huggingfaceToken: ""
   openaiApiKey: ""
 
-# External dependencies (provided out-of-cluster for dev; override for prod).
+# Generation model for document-processor (POST /api/v1/generate).
+llm:
+  provider: fake # fake | huggingface | openai | google
+  model: Qwen/Qwen2.5-72B-Instruct
+  openaiBaseUrl: ""
+  googleApiKey: ""
+
+# In-cluster Kafka (single-broker KRaft). Disable to use an external broker.
 kafka:
+  enabled: true
+  image: apache/kafka:latest
+  host: kafka
   brokers: "kafka:9092"
+  topic: raw.events
+  storageSize: 2Gi
+
+# In-cluster Postgres with the pgvector extension.
 postgres:
-  host: "postgres"
+  enabled: true
+  image: pgvector/pgvector:pg16
+  host: postgres
   port: 5432
-  database: "eventpulse"
-  user: "eventpulse"
+  database: eventpulse_db
+  user: postgres
+  password: postgres
+  storageSize: 2Gi
+
+secrets:
+  mcpName: mcp-server-secret
+  postgresName: postgres-credentials
+
+ingress:
+  enabled: true
+  className: traefik
+  hosts:
+    ingestionGateway: events.localhost
+    mcpServer: mcp.localhost

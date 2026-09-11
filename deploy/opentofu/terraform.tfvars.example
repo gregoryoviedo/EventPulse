@@ -1,0 +1,17 @@
+# Copy to terraform.tfvars and adjust. Secrets must never be committed.
+cluster_name       = "eventpulse"
+namespace          = "eventpulse"
+image_registry     = "ghcr.io/eventpulse"
+image_tag          = "0.1.0"
+
+# fake | huggingface | openai
+embeddings_provider = "fake"
+# huggingface_token   = "hf_..."
+# openai_api_key      = "sk-..."
+
+# fake | huggingface | openai | google
+llm_provider = "fake"
+
+postgres_password = "postgres"
+
+ingress_ports = [18080, 18090]

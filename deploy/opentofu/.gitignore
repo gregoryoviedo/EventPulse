@@ -1,0 +1,6 @@
+# Local OpenTofu state and secret vars (never commit).
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+tfplan
